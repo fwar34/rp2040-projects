@@ -1,0 +1,18 @@
+#ifndef __SIGNALS_H_
+#define __SIGNALS_H_
+
+#include "qpc.h"
+
+enum AppSignals {
+    PUB_SIGNAL_MAX = Q_USER_SIG
+};
+
+enum InputSignals {
+    SIGNAL_KEY_POLL = PUB_SIGNAL_MAX + 1,
+    SIGNAL_DEBOUNCING,
+    SIGNAL_ROTATE_POLL,
+    SIGNAL_INPUT,
+    SIGNAL_TIMEOUT,
+};
+
+#endif // !__SIGNALS_H_
