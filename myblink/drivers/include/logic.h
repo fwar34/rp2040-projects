@@ -4,5 +4,6 @@
 void LogicInit();
 void LogicUp();
 void LogicDown();
+void LogicXor();
 
 #endif

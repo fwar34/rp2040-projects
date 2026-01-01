@@ -52,8 +52,8 @@ pico_set_program_name(myblink "myblink")
 pico_set_program_version(myblink "0.1")
 
 # Modify the below lines to enable/disable output over UART/USB
-pico_enable_stdio_uart(myblink 1)
-pico_enable_stdio_usb(myblink 0)
+pico_enable_stdio_uart(myblink 0)
+pico_enable_stdio_usb(myblink 1)
 
 # Add the standard library to the build
 target_link_libraries(myblink
@@ -63,6 +63,7 @@ target_link_libraries(myblink
         hardware_pwm
         hardware_timer
         hardware_dma
+        hardware_uart
         # hardware_spin_lock
         qpc)
 

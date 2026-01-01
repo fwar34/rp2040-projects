@@ -9,7 +9,7 @@ typedef struct {
     uint32_t key;
     union {
         uint8_t kickCount;
-        uint16_t rotatePosition;
+        int16_t rotatePosition;
         uint8_t qeueueMin;
     } data;
 } InputEvent;

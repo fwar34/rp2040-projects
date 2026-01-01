@@ -9,7 +9,6 @@
  * 
  */
 #include "uart1.h"
-#include "pico/stdio_uart.h"
 #include "pico/stdlib.h"
 #include "hardware/dma.h"
 #include "hardware/irq.h"

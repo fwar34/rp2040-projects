@@ -1,7 +1,7 @@
 #include "logic.h"
 #include "pico/stdlib.h"
 
-#define LOGIC_PIN 23
+#define LOGIC_PIN 14
 
 void LogicInit()
 {
@@ -17,4 +17,9 @@ void LogicUp()
 void LogicDown()
 {
     gpio_put(LOGIC_PIN, false);
+}
+
+void LogicXor()
+{
+    gpio_xor_mask(1 << LOGIC_PIN);
 }

@@ -22,8 +22,10 @@ static void Ec11EventProcess(InputEvent *inputEvent)
 {
     // HAL_GPIO_WritePin(testChannel2_GPIO_Port, testChannel2_Pin, GPIO_PIN_SET);
     char display_buffer[48] = {0};
-    sprintf(display_buffer, "recv:%s", GetKeyEventName(inputEvent->key));
-    LCD_ShowCharStr_DMA_Optimized(0, 0, LCD_WIDTH, display_buffer, RGB565_ORANGE, RGB565_BLUE, 16);
+    // if (inputEvent->key != EC11_DEBUG) {
+    //     sprintf(display_buffer, "recv:%s", GetKeyEventName(inputEvent->key));
+    //     LCD_ShowCharStr_DMA_Optimized(0, 0, LCD_WIDTH, display_buffer, RGB565_ORANGE, RGB565_BLUE, 16);
+    // }
 
     switch (inputEvent->key)
     {
@@ -35,8 +37,12 @@ static void Ec11EventProcess(InputEvent *inputEvent)
         }
         break;
     case EC11_KEY_LEFT_ROTATE:
+        sprintf(display_buffer, "left:cur:%d", inputEvent->data.rotatePosition);
+        LCD_ShowCharStr_DMA_Optimized(0, 0, LCD_WIDTH, display_buffer, RGB565_ORANGE, RGB565_BLUE, 16);
         break;
     case EC11_KEY_RIGHT_ROTATE:
+        sprintf(display_buffer, "right:cur:%d", inputEvent->data.rotatePosition);
+        LCD_ShowCharStr_DMA_Optimized(0, 0, LCD_WIDTH, display_buffer, RGB565_ORANGE, RGB565_BLUE, 16);
         break;
     case EC11_KEY_PRESS_LEFT_ROTATE:
         break;
