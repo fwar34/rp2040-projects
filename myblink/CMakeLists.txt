@@ -41,9 +41,10 @@ add_executable(myblink myblink.c
                        drivers/src/led.c
                        drivers/src/logic.c
                        drivers/src/dht11.c
-                    #    drivers/src/ec11.c
+                       drivers/src/ec11.c
                     #    drivers/src/lcd.c
                        drivers/src/st7735s.c
+                       drivers/src/uart1.c
                        app/src/util_print.c
                        app/src/input_process.c)
 

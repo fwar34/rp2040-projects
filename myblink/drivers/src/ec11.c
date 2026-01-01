@@ -1,12 +1,14 @@
 #include "ec11.h"
-#include "stm32f1xx_hal.h"
 #include "bsp.h"
-#include "main.h"
 #include "input_process.h"
 #include "signals.h"
-#include "usart.h"
-#include "timer3.h"
+#include "hardware/gpio.h"
+#include "pico/stdlib.h"
 #include <stdint.h>
+
+#define EC11_KEY_PIN 23
+#define EC11_A_PIN 28
+#define EC11_B_PIN 29
 
 #define KEY_BUF_SIZE 4
 // 按键消抖时间
@@ -63,8 +65,8 @@ const char *GetKeyName(uint8_t keyIndex)
 const char *GetKeyEventName(uint8_t keyEvent)
 {
     static const char *keyStateNameArray[] = {
-        "invalid",          "press",       "continue click", "double_click",
-        "long_click",       "left_rotate", "right_rotate",   "press_left_rotate",
+        "invalid", "press", "continue click", "double_click",
+        "long_click", "left_rotate", "right_rotate", "press_left_rotate",
         "press_right_rotate", "ec11_debug"};
 
     uint8_t size = sizeof(keyStateNameArray) / sizeof(keyStateNameArray[0]);
@@ -121,7 +123,6 @@ QState Ec11RotatePoll(Ec11 *me, const QEvt *e)
     {
     case SIGNAL_ROTATE_POLL:
     {
-        HAL_GPIO_TogglePin(testChannel1_GPIO_Port, testChannel1_Pin);
         static uint32_t count = 0;
         if (count++ % 500 == 0) {
             InputEvent *inputEvent = Q_NEW(InputEvent, SIGNAL_INPUT);
@@ -129,8 +130,6 @@ QState Ec11RotatePoll(Ec11 *me, const QEvt *e)
             inputEvent->key = EC11_DEBUG;
             QACTIVE_POST(g_InputProcess, &inputEvent->super, &me->super);
         }
-        // UartPrintf("SIGNAL_ROTATE_POLL Timer3 tickcout:%d, eQueue free:%d\n",
-        //     Timer3Count(), me->super.eQueue.nFree);
         uint8_t currentAB = Ec11ReadAB();
         uint8_t index = (me->lastAB << 2) | currentAB;
         int8_t movement = g_Qem[index & 0x0F];
@@ -169,8 +168,7 @@ QState Ec11RotatePoll(Ec11 *me, const QEvt *e)
 
 static uint8_t Ec11ReadAB()
 {
-    return (HAL_GPIO_ReadPin(ec11_A_GPIO_Port, ec11_A_Pin) << 1) |
-        HAL_GPIO_ReadPin(ec11_B_GPIO_Port, ec11_B_Pin);
+    return (gpio_get(EC11_A_PIN) << 1) | (gpio_get(EC11_B_PIN));
 }
 
 /**
@@ -195,8 +193,7 @@ QState Ec11Idle(Ec11 *me, const QEvt *e)
         status = Q_HANDLED();
         break;
     case SIGNAL_KEY_POLL:
-        // HAL_GPIO_TogglePin(testChannel2_GPIO_Port, testChannel2_Pin);
-        if (HAL_GPIO_ReadPin(ec11_Key_GPIO_Port, ec11_Key_Pin) == GPIO_PIN_RESET) {
+        if (!gpio_get(EC11_KEY_PIN)) {
             status = Q_TRAN(Ec11ClickPressDebouncing);
         } else {
             status = Q_HANDLED();
@@ -223,7 +220,7 @@ QState Ec11ClickPressDebouncing(Ec11 *me, const QEvt *e)
     switch (e->sig)
     {
     case Q_ENTRY_SIG:
-        if (HAL_GPIO_ReadPin(ec11_Key_GPIO_Port, ec11_Key_Pin) == GPIO_PIN_SET) { // 如果是高电平则提前退出
+        if (gpio_get(EC11_KEY_PIN)) { // 如果是高电平则提前退出
             status = Q_TRAN(Ec11Idle);
         } else {
             QTimeEvt_armX(&me->timeEvtDebouncing, KEY_DEBOUNCING_TIME_10MS, 0U); // 启动按下去抖逻辑
@@ -231,8 +228,8 @@ QState Ec11ClickPressDebouncing(Ec11 *me, const QEvt *e)
         }
         break;
     case SIGNAL_DEBOUNCING:
-        if (HAL_GPIO_ReadPin(ec11_Key_GPIO_Port, ec11_Key_Pin) == GPIO_PIN_RESET) { // 按下去抖成功
-            me->lastPressTick = HAL_GetTick(); // 保存识别到 press 的 tick
+        if (!gpio_get(EC11_KEY_PIN)) { // 按下去抖成功
+            me->lastPressTick = us_to_ms(time_us_32()); // 保存识别到 press 的 tick
             // me->debouncingTick = 0; // 清零去抖 tick，为 release 的去抖做准备
             InputEvent *evt = Q_NEW(InputEvent, SIGNAL_INPUT);
             evt->key = EC11_KEY_PRESS;
@@ -264,14 +261,14 @@ QState Ec11ClickReleaseDebouncing(Ec11 *me, const QEvt *e)
         status = Q_HANDLED();
         break;
     case SIGNAL_KEY_POLL:
-        if (HAL_GPIO_ReadPin(ec11_Key_GPIO_Port, ec11_Key_Pin) == GPIO_PIN_SET) {
+        if (gpio_get(EC11_KEY_PIN)) {
             QTimeEvt_armX(&me->timeEvtDebouncing, KEY_DEBOUNCING_TIME_10MS, 0); // 按下的过程中检测到高电平则启动释放的去抖
             QTimeEvt_disarm(&me->timeEvtKeyPoll);
         }
         status = Q_HANDLED();
         break;
     case SIGNAL_DEBOUNCING:
-        if (HAL_GPIO_ReadPin(ec11_Key_GPIO_Port, ec11_Key_Pin) == GPIO_PIN_SET) { // 释放按键去抖成功
+        if (gpio_get(EC11_KEY_PIN)) { // 释放按键去抖成功
             status = Q_TRAN(Ec11ClickRelease);
         } else {
             QTimeEvt_armX(&me->timeEvtKeyPoll, EC11_POLL_INTERVAL, EC11_POLL_INTERVAL); // 释放按键去抖失败则可能是干扰，继续轮询按键是否释放
@@ -296,7 +293,7 @@ QState Ec11ClickRelease(Ec11 *me, const QEvt *e)
             status = Q_TRAN(Ec11Idle);
             break;
         }
-        uint32_t currentTick = HAL_GetTick();
+        uint32_t currentTick = us_to_ms(time_us_32());
         if (currentTick - me->lastPressTick <= KEY_LONG_CLICK_TIME_700MS) { // 单击
             me->lastClickTick = currentTick; // 更新单击 tick，判断连击的候使用
             me->lastPressTick = 0;
@@ -332,10 +329,10 @@ QState Ec11ContinueClickPress(Ec11 *me, const QEvt *e)
         break;
     case SIGNAL_KEY_POLL:
     {
-        uint32_t currentTick = HAL_GetTick();
+        uint32_t currentTick = us_to_ms(time_us_32());
         uint32_t sinceLastClickDurationTick = currentTick - me->lastClickTick;
-        GPIO_PinState currentKeyLevel = HAL_GPIO_ReadPin(ec11_Key_GPIO_Port, ec11_Key_Pin);
-        if (currentKeyLevel == GPIO_PIN_SET && sinceLastClickDurationTick > KEY_CONTINUE_TIME_200MS) {
+        bool currentKeyLevel = gpio_get(EC11_KEY_PIN);
+        if (currentKeyLevel && sinceLastClickDurationTick > KEY_CONTINUE_TIME_200MS) {
             // 200ms的连击阈值内没有按下，则发送连击消息
             InputEvent *inputEvent = Q_NEW(InputEvent, SIGNAL_INPUT);
             inputEvent->key = EC11_KEY_CONTINUE_CLICK;
@@ -345,7 +342,7 @@ QState Ec11ContinueClickPress(Ec11 *me, const QEvt *e)
             break;
         }
 
-        if (currentKeyLevel == GPIO_PIN_RESET && sinceLastClickDurationTick <= KEY_CONTINUE_TIME_200MS) {
+        if (!currentKeyLevel && sinceLastClickDurationTick <= KEY_CONTINUE_TIME_200MS) {
             me->lastPressTick = currentTick;
             status = Q_TRAN(Ec11ContinueClickPressDebouncing);
             break;
@@ -371,8 +368,8 @@ QState Ec11ContinueClickPressDebouncing(Ec11 *me, const QEvt *e)
         status = Q_HANDLED();
         break;
     case SIGNAL_DEBOUNCING:
-        if (HAL_GPIO_ReadPin(ec11_Key_GPIO_Port, ec11_Key_Pin) == GPIO_PIN_RESET) { // 按下去抖成功
-            me->lastPressTick = HAL_GetTick();
+        if (!gpio_get(EC11_KEY_PIN)) { // 按下去抖成功
+            me->lastPressTick = us_to_ms(time_us_32());
             status = Q_TRAN(Ec11ContinueClickReleaseDebouncing);
         } else {
             status = Q_TRAN(Ec11ContinueClickPress); // 去抖失败则回退到 Ec11ContinueClickPress 继续轮询
@@ -400,14 +397,14 @@ QState Ec11ContinueClickReleaseDebouncing(Ec11 *me, const QEvt *e)
         status = Q_HANDLED();
         break;
     case SIGNAL_KEY_POLL:
-        if (HAL_GPIO_ReadPin(ec11_Key_GPIO_Port, ec11_Key_Pin) == GPIO_PIN_SET) { // 按下的过程中检测到高电平则启动释放的去抖
+        if (gpio_get(EC11_KEY_PIN)) { // 按下的过程中检测到高电平则启动释放的去抖
             QTimeEvt_armX(&me->timeEvtDebouncing, KEY_DEBOUNCING_TIME_10MS, 0);
             QTimeEvt_disarm(&me->timeEvtKeyPoll);
         }
         status = Q_HANDLED();
         break;
     case SIGNAL_DEBOUNCING:
-        if (HAL_GPIO_ReadPin(ec11_Key_GPIO_Port, ec11_A_Pin) == GPIO_PIN_SET) { // 释放按键去抖成功
+        if (gpio_get(EC11_A_PIN)) { // 释放按键去抖成功
             status = Q_TRAN(Ec11ContinueClickRelease);
         } else {
             QTimeEvt_armX(&me->timeEvtKeyPoll, EC11_POLL_INTERVAL, EC11_POLL_INTERVAL); // 去抖失败则在当前状态继续轮询
@@ -433,7 +430,7 @@ QState Ec11ContinueClickRelease(Ec11 *me, const QEvt *e)
             break;
         }
 
-        uint32_t currentTick = HAL_GetTick();
+        uint32_t currentTick = us_to_ms(time_us_32());
         if (currentTick - me->lastPressTick <= KEY_LONG_CLICK_TIME_700MS) { // 单击
             me->lastClickTick = currentTick; // 更新单击 tick，判断连击的候使用
             me->lastPressTick = 0;

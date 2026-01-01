@@ -48,7 +48,9 @@
         "lock_core.h": "c",
         "async_context_base.h": "c",
         "async_context.h": "c",
-        "sync.h": "c"
+        "sync.h": "c",
+        "uart1.h": "c",
+        "gpio_coproc.h": "c"
     },
     "commentTranslate.source": "Google",
     "commentTranslate.targetLanguage": "zh-CN"

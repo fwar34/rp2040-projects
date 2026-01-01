@@ -1,9 +1,6 @@
 #include "input_process.h"
-// #include "stm32f1xx_hal.h"
 #include "ec11.h"
-// #include "main.h"
-// #include "usart.h"
-// #include "st7735s.h"
+#include "st7735s.h"
 #include <stdio.h>
 
 typedef struct {
@@ -24,9 +21,9 @@ void InputProcessCtor(void)
 static void Ec11EventProcess(InputEvent *inputEvent)
 {
     // HAL_GPIO_WritePin(testChannel2_GPIO_Port, testChannel2_Pin, GPIO_PIN_SET);
-    // char display_buffer[48] = {0};
-    // sprintf(display_buffer, "recv:%s", GetKeyEventName(inputEvent->key));
-    // LCD_ShowCharStr_DMA_Optimized(0, 0, LCD_WIDTH, display_buffer, RGB565_BROWN, RGB565_CYAN, 16);
+    char display_buffer[48] = {0};
+    sprintf(display_buffer, "recv:%s", GetKeyEventName(inputEvent->key));
+    LCD_ShowCharStr_DMA_Optimized(0, 0, LCD_WIDTH, display_buffer, RGB565_ORANGE, RGB565_BLUE, 16);
 
     switch (inputEvent->key)
     {

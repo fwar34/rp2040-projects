@@ -2,7 +2,7 @@
 // #include "blinky.h" // Blinky Application interface
 // #include "main.h"
 #include "dht11.h"
-// #include "ec11.h"
+#include "ec11.h"
 #include "input_process.h"
 // #include "signals.h"
 // #include "usart.h"
@@ -66,14 +66,14 @@ void BSP_start(void)
                   (void *)0, 0U,         // no stack storage
                   (void *)0);            // no initialization param
 
-    // static QEvtPtr ec11QueueSto[20];
-    // Ec11Ctor();
-    // QActive_start(g_Ec11,
-    //               3U,                    // QP prio. of the AO
-    //               ec11QueueSto,        // event queue storage
-    //               Q_DIM(ec11QueueSto), // queue length [events]
-    //               (void *)0, 0U,         // no stack storage
-    //               (void *)0);            // no initialization param
+    static QEvtPtr ec11QueueSto[20];
+    Ec11Ctor();
+    QActive_start(g_Ec11,
+                  3U,                    // QP prio. of the AO
+                  ec11QueueSto,        // event queue storage
+                  Q_DIM(ec11QueueSto), // queue length [events]
+                  (void *)0, 0U,         // no stack storage
+                  (void *)0);            // no initialization param
 
     static QEvtPtr inputProcessQueueSto[10];
     InputProcessCtor();
