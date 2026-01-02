@@ -44,7 +44,9 @@
 // 
 #define EC11_ROTATE_POLL_INTERVAL 1
 #define EC11_KEY_POLL_INTERVAL 10
-#define ROTATE_DEBOUNCE_TIME_5MS 5 
+// 没有硬件消抖的时候使用软件消抖
+// #define ROTATE_DEBOUNCE_TIME_5MS 5 
+#define ROTATE_DEBOUNCE_TIME_5MS 2 
 
 typedef struct {
     QActive super;
@@ -90,7 +92,8 @@ static uint8_t Ec11ReadAB()
 
 static uint32_t Ec11GetTick()
 {
-    return to_ms_since_boot(get_absolute_time());
+    return us_to_ms(time_us_32());
+    // return to_ms_since_boot(get_absolute_time());
 }
 
 static bool Ec11RotateDebounce(Ec11 *me)
@@ -192,7 +195,7 @@ QState Ec11RotatePoll(Ec11 *me, const QEvt *e)
     case SIGNAL_ROTATE_POLL:
     {
         static uint32_t count = 0;
-        LogicXor();
+        Logic1Xor();
         if (count++ % 500 == 0) {
             InputEvent *inputEvent = Q_NEW(InputEvent, SIGNAL_INPUT);
             inputEvent->data.qeueueMin = QActive_getQueueMin(me->super.prio);
