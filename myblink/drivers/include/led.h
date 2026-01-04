@@ -2,13 +2,12 @@
 #define __LED_H_
 
 void LedInit();
-void LightLedForError();
+void Led0Xor();
+void LightLed0();
+void OffLed0();
 void LightLed1();
-void LightLed2();
-void LightLed3();
 void OffLed1();
-void OffLed2();
-void OffLed3();
-void ToggleLed2();
+void Led1Xor();
+void LedForError();
 
 #endif // !__LED_H_

@@ -15,6 +15,11 @@
  * 标准 2 倍频：仅检测 A 相的上升 / 下降沿（计 2 次）；
  * 4 倍频：检测 A/B 两相的所有上升 / 下降沿（计 4 次）。
  * ---------------------------------------------------------------------
+ * 1. 为 EC11 的 A/B 两相都配置GPIO 双边沿中断（上升沿 + 下降沿）；
+ * 2. 中断触发时读取当前 A/B 电平，根据 “触发引脚 + 电平组合” 判断每一个边沿的方向，实现 4 次计数 / 旋转格；
+ * 3. 加入 5ms 软件消抖，避免机械抖动导致的误计数；
+ * 4. 最终计数 ±4 对应 EC11 物理旋转 1 格。
+ * ---------------------------------------------------------------------
  * 器件不同：由于不同厂家的A,C,B引脚顺序可能是反的，没有数据手册就只能看时序。除了EC11EH这个型号，
  * 其余的EC11正转时A引脚的输出脉冲相位超前于B引脚。反转则相反，A滞后于B。EC11EH正转时A引脚的输出脉冲相位落后与B引脚。
  * 当前程序是EC11EH器件
@@ -30,8 +35,12 @@
 #include "signals.h"
 #include "hardware/gpio.h"
 #include "pico/stdlib.h"
+#include "irq_handler.h"
 #include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include "logic.h"
+#include "led.h"
 
 #define EC11_KEY_PIN 23
 #define EC11_A_PIN 28
@@ -45,82 +54,37 @@
 // 单击识别长按
 #define KEY_LONG_CLICK_TIME_700MS 700
 // 
-#define EC11_ROTATE_POLL_INTERVAL 2
+#define EC11_ROTATE_POLL_INTERVAL 1
 #define EC11_KEY_POLL_INTERVAL 10
 // 没有硬件消抖的时候使用软件消抖
 // #define ROTATE_DEBOUNCE_TIME_5MS 5 
-#define ROTATE_DEBOUNCE_TIME_5MS 3 
-#define EC11_DEBOUNCE_COUNT 2
+#define ROTATE_DEBOUNCE_TIME 1000
 
 typedef struct {
     QActive super;
-    uint32_t lastRotateTick; // 旋转去抖
+    uint32_t lastAIrqTime; // 上一次 PINA 中断的时间
+    uint32_t lastBIrqTime; // 上一次 PINB 中断的时间
+    int32_t tmpCount;
     uint8_t lastKeyLevel;
     uint32_t lastPressTick; // 长按判断
     uint8_t clickCount;  // 连续按下的计数
     uint32_t lastClickTick;   // 识别到单击时的 tick，判断双击用
-    uint8_t lastAB; // 上一次A相和B相的值：(A << 1) | B
-    uint8_t stableAB; // 消抖用的AB值
-    uint8_t debounceCount;  // 消抖计数（连续采样相同电平的次数）
     int16_t rotatePosition; // ec11 旋转的位置计数
     bool hasRotate; // ec11 是否旋转
     uint8_t currentKeyState; // 当前按键状态
     QTimeEvt timeEvtKeyPoll; // 按键轮询的定时器
     QTimeEvt timeEvtDebouncing; // 去抖定时器
     QTimeEvt timeEvtRotatePoll; // 旋转轮询定时器
-    bool lastA;
-    bool lastB;
-    uint8_t pinDebounceCount;
 } Ec11;
 
 static Ec11 g_Instance;
 QActive *g_Ec11 = &g_Instance.super;
-
-/**
- * @brief 
- * 等价 4x4 矩阵（行=上一次AB值，列=当前AB值，值=旋转方向）：
- * 当前AB →        00   01   10   11
- * int8_t qem_matrix[4][4] = {
- *     上一次AB=00 { 0,  1, -1,  0 },
- *     上一次AB=01 {-1,  0,  0,  1 },
- *     上一次AB=10 { 1,  0,  0, -1 },
- *     上一次AB=11 { 0, -1,  1,  0 }
- * };
- */
-static const int8_t g_Qem[] = {
-    0, 1, -1, 0,
-    -1, 0, 0, 1,
-    1, 0, 0, -1,
-    0, -1, 1, 0
-};
-
-static uint8_t Ec11ReadAB()
-{
-    return (gpio_get(EC11_A_PIN) << 1) | (gpio_get(EC11_B_PIN));
-}
-
-static bool PinDebounce(bool curPinState, bool lastPinState)
-{
-    if (lastPinState != curPinState) {
-
-    }
-}
 
 static uint32_t Ec11GetTick()
 {
     return us_to_ms(time_us_32());
     // return to_ms_since_boot(get_absolute_time());
 }
-
-// static bool Ec11RotateDebounce(Ec11 *me)
-// {
-//     uint32_t now = Ec11GetTick();
-//     if (now - me->lastRotateTick < ROTATE_DEBOUNCE_TIME_5MS) {
-//         return false; // 消抖中
-//     }
-//     me->lastRotateTick = now;
-//     return true;
-// }
 
 const char *GetKeyName(uint8_t keyIndex)
 {
@@ -180,82 +144,160 @@ void Ec11Ctor(void)
 
 static void Ec11Reset(Ec11 *me)
 {
-    me->lastRotateTick = 0;
     me->lastKeyLevel = 1;
     me->lastPressTick = 0;
     me->clickCount = 0;
     me->lastClickTick = 0;
-    me->lastAB = Ec11ReadAB();
-    me->stableAB = me->lastAB;
-    me->debounceCount = 0;
-    me->rotatePosition = 0;
     me->hasRotate = false;
 }
 
+static void LedTest(uint32_t now)
+{
+    static uint32_t ledLastTime = 0;
+    // if (now - ledLastTime > 200) {
+        Led0Xor();
+        ledLastTime = now;
+    // }
+}
+
+static uint32_t aIrqCount = 0;
+static uint32_t bIrqCount = 0;
+#if 0
+static void PushEc11Event(int32_t tmpCount)
+{
+    g_Instance.rotatePosition += (tmpCount / 4);
+    InputEvent *inputEvent = Q_NEW(InputEvent, SIGNAL_INPUT);
+    inputEvent->data.rotatePosition = g_Instance.rotatePosition;
+    if (tmpCount > 0) {
+        inputEvent->key = (g_Instance.lastPressTick != 0) ? EC11_KEY_PRESS_RIGHT_ROTATE : EC11_KEY_RIGHT_ROTATE;
+    } else {
+        inputEvent->key = (g_Instance.lastPressTick != 0) ? EC11_KEY_PRESS_LEFT_ROTATE : EC11_KEY_LEFT_ROTATE;
+    }
+    QACTIVE_POST(g_InputProcess, &inputEvent->super, &g_Instance.super);
+}
+
+static void Ec11PinAIrqHandler(uint32_t event_mask)
+{
+    aIrqCount++;
+    uint32_t now = time_us_32();
+    if (now - g_Instance.lastAIrqTime < ROTATE_DEBOUNCE_TIME) {
+        return;
+    }
+    g_Instance.lastAIrqTime = now;
+    LedTest(now);
+    uint32_t start = now;
+
+    bool curPinBState = gpio_get(EC11_B_PIN);
+    if (event_mask & GPIO_IRQ_EDGE_FALL) {
+        g_Instance.tmpCount += curPinBState ? -1 : 1;
+    } else {
+        g_Instance.tmpCount += curPinBState ? 1 : -1;
+        if (g_Instance.tmpCount == 2) {
+            g_Instance.tmpCount = 0;
+        }
+        if (g_Instance.tmpCount >= 4 || g_Instance.tmpCount <= -4) {
+            PushEc11Event(g_Instance.tmpCount);
+            g_Instance.tmpCount = 0;
+        }
+    }
+}
+
+static void Ec11PinBIrqHandler(uint32_t event_mask)
+{
+    bIrqCount++;
+    uint32_t now = time_us_32();
+    if (now - g_Instance.lastBIrqTime < ROTATE_DEBOUNCE_TIME) {
+        return;
+    }
+    g_Instance.lastBIrqTime = now;
+    LedTest(now);
+    uint32_t start = now;
+
+    bool curPinAState = gpio_get(EC11_A_PIN);
+    if (event_mask & GPIO_IRQ_EDGE_FALL) {
+        g_Instance.tmpCount += curPinAState ? 1 : -1;
+    } else {
+        g_Instance.tmpCount += curPinAState ? -1 : 1;
+        if (g_Instance.tmpCount == 2) {
+            g_Instance.tmpCount = 0;
+        }
+        if (g_Instance.tmpCount >= 4 || g_Instance.tmpCount <= -4) {
+            PushEc11Event(g_Instance.tmpCount);
+            g_Instance.tmpCount = 0;
+        }
+    }
+}
+#else
+static void PushEc11Event()
+{
+    static int16_t lastPosition = 0;
+    int32_t delta = g_Instance.rotatePosition - lastPosition;
+    InputEvent *inputEvent = Q_NEW(InputEvent, SIGNAL_INPUT);
+    inputEvent->data.rotatePosition = g_Instance.rotatePosition;
+    inputEvent->key = delta > 0 ? EC11_KEY_RIGHT_ROTATE : EC11_KEY_LEFT_ROTATE;
+    QACTIVE_POST(g_InputProcess, &inputEvent->super, &g_Instance.super);
+    lastPosition = g_Instance.rotatePosition;
+}
+
+static void Ec11PinAIrqHandler(uint32_t event_mask)
+{
+    aIrqCount++;
+    uint32_t now = time_us_32();
+    if (now - g_Instance.lastAIrqTime < ROTATE_DEBOUNCE_TIME) {
+        return;
+    }
+    g_Instance.lastAIrqTime = now;
+    LedTest(now);
+
+    bool curPinBState = gpio_get(EC11_B_PIN);
+    if (event_mask & GPIO_IRQ_EDGE_FALL) {
+        g_Instance.rotatePosition += curPinBState ? -1 : 1;
+    } else {
+        g_Instance.rotatePosition += curPinBState ? 1 : -1;
+        PushEc11Event();
+    }
+}
+
+static void Ec11PinBIrqHandler(uint32_t event_mask)
+{
+    bIrqCount++;
+    uint32_t now = time_us_32();
+    if (now - g_Instance.lastBIrqTime < ROTATE_DEBOUNCE_TIME) {
+        return;
+    }
+    g_Instance.lastBIrqTime = now;
+    LedTest(now);
+
+    bool curPinAState = gpio_get(EC11_A_PIN);
+    if (event_mask & GPIO_IRQ_EDGE_FALL) {
+        g_Instance.rotatePosition += curPinAState ? 1 : -1;
+    } else {
+        g_Instance.rotatePosition += curPinAState ? -1 : 1;
+        PushEc11Event();
+    }
+}
+#endif
+
 QState Ec11Init(Ec11 *me, const void *arg)
 {
-    
     Q_UNUSED_PAR(me);
     Q_UNUSED_PAR(arg);
+
+    uint32_t now = time_us_32();
+    me->lastAIrqTime = now;
+    me->lastBIrqTime = now;
+    me->rotatePosition = 0;
     gpio_init_mask(1 << EC11_KEY_PIN | 1 << EC11_A_PIN | 1 << EC11_B_PIN);
     gpio_set_dir_masked(1 << EC11_KEY_PIN | 1 << EC11_A_PIN | 1 << EC11_B_PIN, GPIO_IN);
     gpio_pull_up(EC11_KEY_PIN);
-    gpio_pull_up(EC11_A_PIN);
-    gpio_pull_up(EC11_B_PIN);
+    // gpio_pull_up(EC11_A_PIN);
+    // gpio_pull_up(EC11_B_PIN);
+    RegisterIrq(EC11_A_PIN, GPIO_IRQ_EDGE_FALL | GPIO_IRQ_EDGE_RISE, true, Ec11PinAIrqHandler);
+    RegisterIrq(EC11_B_PIN, GPIO_IRQ_EDGE_FALL | GPIO_IRQ_EDGE_RISE, true, Ec11PinBIrqHandler);
     QTimeEvt_armX(&me->timeEvtRotatePoll, EC11_ROTATE_POLL_INTERVAL, EC11_ROTATE_POLL_INTERVAL);
     return Q_TRAN(Ec11Idle);
 }
 
-#if 0
-#if 0
-// EC11旋转消抖核心函数（修复版）
-static bool Ec11RotateDebounce(Ec11 *me, uint8_t currentAB)
-{
-    // 1. 电平变化，置消抖计数和上一次电平，开始消抖
-    if (currentAB != me->lastAB) {
-        me->debounceCount = 0;
-        me->lastAB = currentAB;
-    } else { // 2. 如果当前采样电平与上一次采样电平一致，消抖计数+1
-        me->debounceCount++;
-        // 3. 连续采样次数达到消抖阈值，判定为稳定电平
-        if (me->debounceCount >= EC11_DEBOUNCE_COUNT) {
-            me->debounceCount = 0;    // 重置计数
-            return true;              // 消抖完成，电平有效
-        }
-    }
-
-    return false; // 消抖未完成，电平无效
-}
-#else
-// EC11旋转消抖核心函数（修复版）
-static bool Ec11RotateDebounce(Ec11 *me, uint8_t currentAB)
-{
-    // 1. 如果当前采样电平与稳定电平一致，电平没有变化，重置消抖计数
-    if (currentAB == me->stableAB) {
-        me->debounceCount = 0;
-        return false;
-    }
-
-    // 2. 如果当前采样电平与上一次采样电平一致，消抖计数+1
-    if (currentAB == me->lastAB) {
-        me->debounceCount++;
-        // 3. 连续采样次数达到消抖阈值，判定为稳定电平
-        if (me->debounceCount >= EC11_DEBOUNCE_COUNT) {
-            // me->stableAB = currentAB; // 更新稳定电平
-            me->debounceCount = 0;    // 重置计数
-            return true;              // 消抖完成，电平有效
-        }
-    } else {
-        // 4. 电平变化，置消抖计数和上一次电平，开始消抖
-        me->debounceCount = 0;
-        me->lastAB = currentAB;
-    }
-
-    return false; // 消抖未完成，电平无效
-}
-#endif
-
-// 修复后的EC11旋转轮询状态函数
 QState Ec11RotatePoll(Ec11 *me, const QEvt *e)
 {
     QState status = Q_HANDLED();
@@ -263,43 +305,31 @@ QState Ec11RotatePoll(Ec11 *me, const QEvt *e)
     {
     case SIGNAL_ROTATE_POLL:
     {
+        Logic2Xor();
         static uint32_t count = 0;
-        // Logic1Xor(); // 若为硬件消抖相关函数，需保留（根据你的工程调整）
-        
-        // 调试信息：每500ms输出一次队列状态（和消抖无关）
         if (count++ % 500 == 0) {
             InputEvent *inputEvent = Q_NEW(InputEvent, SIGNAL_INPUT);
             inputEvent->data.qeueueMin = QActive_getQueueMin(me->super.prio);
             inputEvent->key = EC11_DEBUG;
             QACTIVE_POST(g_InputProcess, &inputEvent->super, &me->super);
+            printf("aIrqCount:%d, bIrqCount:%d, tmpC:%d\n", aIrqCount, bIrqCount, g_Instance.tmpCount);
         }
 
-        // 1. 读取当前AB相电平
-        uint8_t currentAB = Ec11ReadAB();
-        // 2. 消抖判断：仅当消抖完成（电平稳定）时，才处理旋转逻辑
-        if (Ec11RotateDebounce(me, currentAB)) {
-            // 3. 计算旋转方向（使用稳定后的电平）
-            // uint8_t index = (me->lastAB << 2) | me->stableAB;
-            uint8_t index = (me->stableAB << 2) | currentAB;
-            int8_t movement = g_Qem[index & 0x0F];
-            
-            // 4. 有效移动判断
-            if (movement != 0) {
-                me->rotatePosition += movement;
-                me->hasRotate = true;
-                me->lastAB = me->stableAB; // 更新上一次电平为稳定电平
+        // static int16_t lastPosition = 0;
+        // int32_t delta = me->rotatePosition - lastPosition;
+        // if (abs(delta) != 4) {
+        // if (delta != 0) {
+        //     InputEvent *inputEvent = Q_NEW(InputEvent, SIGNAL_INPUT);
+        //     inputEvent->data.rotatePosition = me->rotatePosition;
+        //     if (delta > 0) {
+        //         inputEvent->key = (me->lastPressTick != 0) ? EC11_KEY_PRESS_RIGHT_ROTATE : EC11_KEY_RIGHT_ROTATE;
+        //     } else {
+        //         inputEvent->key = (me->lastPressTick != 0) ? EC11_KEY_PRESS_LEFT_ROTATE : EC11_KEY_LEFT_ROTATE;
+        //     }
+        //     QACTIVE_POST(g_InputProcess, &inputEvent->super, &me->super);
+        //     lastPosition = me->rotatePosition;
+        // }
 
-                // 5. 发送旋转事件
-                InputEvent *inputEvent = Q_NEW(InputEvent, SIGNAL_INPUT);
-                inputEvent->data.rotatePosition = me->rotatePosition;
-                if (movement > 0) {
-                    inputEvent->key = (me->lastPressTick != 0) ? EC11_KEY_PRESS_RIGHT_ROTATE : EC11_KEY_RIGHT_ROTATE;
-                } else {
-                    inputEvent->key = (me->lastPressTick != 0) ? EC11_KEY_PRESS_LEFT_ROTATE : EC11_KEY_LEFT_ROTATE;
-                }
-                QACTIVE_POST(g_InputProcess, &inputEvent->super, &me->super);
-            }
-        }
         status = Q_HANDLED();
         break;
     }
@@ -310,52 +340,6 @@ QState Ec11RotatePoll(Ec11 *me, const QEvt *e)
 
     return status;
 }
-#else
-QState Ec11RotatePoll(Ec11 *me, const QEvt *e)
-{
-    QState status = Q_HANDLED();
-    switch (e->sig)
-    {
-    case SIGNAL_ROTATE_POLL:
-    {
-        static uint32_t count = 0;
-        Logic1Xor();
-        if (count++ % 500 == 0) {
-            InputEvent *inputEvent = Q_NEW(InputEvent, SIGNAL_INPUT);
-            inputEvent->data.qeueueMin = QActive_getQueueMin(me->super.prio);
-            inputEvent->key = EC11_DEBUG;
-            QACTIVE_POST(g_InputProcess, &inputEvent->super, &me->super);
-        }
-        uint8_t currentAB = Ec11ReadAB();
-        uint8_t index = (me->lastAB << 2) | currentAB;
-        int8_t movement = g_Qem[index & 0x0F];
-        me->lastAB = currentAB;
-
-        // 旋转消抖+有效移动判断
-        if (movement != 0) {
-            me->rotatePosition += movement;
-            me->hasRotate = true;
-
-            InputEvent *inputEvent = Q_NEW(InputEvent, SIGNAL_INPUT);
-            inputEvent->data.rotatePosition = me->rotatePosition;
-            if (movement > 0) {
-                inputEvent->key = (me->lastPressTick != 0) ? EC11_KEY_PRESS_RIGHT_ROTATE : EC11_KEY_RIGHT_ROTATE;
-            } else {
-                inputEvent->key = (me->lastPressTick != 0) ? EC11_KEY_PRESS_LEFT_ROTATE : EC11_KEY_LEFT_ROTATE;
-            }
-            QACTIVE_POST(g_InputProcess, &inputEvent->super, &me->super);
-        }
-        status = Q_HANDLED();
-        break;
-    }
-    default:
-        status = Q_SUPER(QHsm_top);
-        break;
-    }
-
-    return status;
-}
-#endif
 
 /**
  * @brief 识别按下
@@ -413,14 +397,17 @@ QState Ec11ClickPressDebouncing(Ec11 *me, const QEvt *e)
             status = Q_HANDLED();
         }
         break;
+    case Q_EXIT_SIG:
+        QTimeEvt_disarm(&me->timeEvtDebouncing);
+        break;
     case SIGNAL_DEBOUNCING:
         if (!gpio_get(EC11_KEY_PIN)) { // 按下去抖成功
             me->lastPressTick = Ec11GetTick(); // 保存识别到 press 的 tick
             // me->debouncingTick = 0; // 清零去抖 tick，为 release 的去抖做准备
             InputEvent *evt = Q_NEW(InputEvent, SIGNAL_INPUT);
             evt->key = EC11_KEY_PRESS;
-            QACTIVE_POST(g_InputProcess, &evt->super, &me->super);
-            status =  Q_TRAN(Ec11ClickReleaseDebouncing);
+            QACTIVE_POST(g_InputProcess, &evt->super, &me->super); // 分发press事件
+            status =  Q_TRAN(Ec11ClickReleaseDebouncing); // 转移到释放去抖状态
         } else {
             status = Q_TRAN(Ec11Idle);
         }
@@ -456,9 +443,21 @@ QState Ec11ClickReleaseDebouncing(Ec11 *me, const QEvt *e)
         break;
     case SIGNAL_DEBOUNCING:
         if (gpio_get(EC11_KEY_PIN)) { // 释放按键去抖成功
-            status = Q_TRAN(Ec11ClickRelease);
+            // status = Q_TRAN(Ec11ClickRelease);
+            uint32_t currentTick = Ec11GetTick();
+            if (currentTick - me->lastPressTick <= KEY_LONG_CLICK_TIME_700MS) { // 单击
+                me->lastClickTick = currentTick; // 更新单击 tick，判断连击的候使用
+                me->lastPressTick = 0;
+                me->clickCount++;
+                status = Q_TRAN(Ec11ContinueClickPress);
+            } else { // 长按
+                InputEvent *inputEvt = Q_NEW(InputEvent, SIGNAL_INPUT);
+                inputEvt->key = EC11_KEY_LONG_CLICK;
+                QACTIVE_POST(g_InputProcess, &inputEvt->super, &me->super);
+                status = Q_TRAN(Ec11Idle);
+            }
         } else {
-            QTimeEvt_armX(&me->timeEvtKeyPoll, EC11_ROTATE_POLL_INTERVAL, EC11_ROTATE_POLL_INTERVAL); // 释放按键去抖失败则可能是干扰，继续轮询按键是否释放
+            QTimeEvt_armX(&me->timeEvtKeyPoll, EC11_KEY_POLL_INTERVAL, EC11_KEY_POLL_INTERVAL); // 释放按键去抖失败则可能是干扰，继续轮询按键是否释放
             status = Q_HANDLED();
         }
         break;
@@ -476,11 +475,11 @@ QState Ec11ClickRelease(Ec11 *me, const QEvt *e)
     switch (e->sig)
     {
     case Q_ENTRY_SIG:
-        if (me->hasRotate) {
-            status = Q_TRAN(Ec11Idle);
-            me->hasRotate = false;
-            break;
-        }
+        // if (me->hasRotate) {
+        //     status = Q_TRAN(Ec11Idle);
+        //     me->hasRotate = false;
+        //     break;
+        // }
         uint32_t currentTick = Ec11GetTick();
         if (currentTick - me->lastPressTick <= KEY_LONG_CLICK_TIME_700MS) { // 单击
             me->lastClickTick = currentTick; // 更新单击 tick，判断连击的候使用
@@ -508,7 +507,7 @@ QState Ec11ContinueClickPress(Ec11 *me, const QEvt *e)
     switch (e->sig)
     {
     case Q_ENTRY_SIG:
-        QTimeEvt_armX(&me->timeEvtKeyPoll, EC11_ROTATE_POLL_INTERVAL, EC11_ROTATE_POLL_INTERVAL);
+        QTimeEvt_armX(&me->timeEvtKeyPoll, EC11_KEY_POLL_INTERVAL, EC11_KEY_POLL_INTERVAL);
         status = Q_HANDLED();
         break;
     case Q_EXIT_SIG:
@@ -530,8 +529,9 @@ QState Ec11ContinueClickPress(Ec11 *me, const QEvt *e)
             break;
         }
 
-        if (!currentKeyLevel && sinceLastClickDurationTick <= KEY_CONTINUE_TIME_200MS) {
-            me->lastPressTick = currentTick;
+        // if (!currentKeyLevel && sinceLastClickDurationTick <= KEY_CONTINUE_TIME_200MS) {
+        if (!currentKeyLevel) {
+            // me->lastPressTick = currentTick;
             status = Q_TRAN(Ec11ContinueClickPressDebouncing);
             break;
         }
@@ -555,6 +555,9 @@ QState Ec11ContinueClickPressDebouncing(Ec11 *me, const QEvt *e)
         QTimeEvt_armX(&me->timeEvtDebouncing, KEY_DEBOUNCING_TIME_10MS, 0); // 启动按下去抖定时器
         status = Q_HANDLED();
         break;
+    case Q_EXIT_SIG:
+        QTimeEvt_disarm(&me->timeEvtDebouncing);
+        break;
     case SIGNAL_DEBOUNCING:
         if (!gpio_get(EC11_KEY_PIN)) { // 按下去抖成功
             me->lastPressTick = Ec11GetTick();
@@ -577,7 +580,7 @@ QState Ec11ContinueClickReleaseDebouncing(Ec11 *me, const QEvt *e)
     switch (e->sig)
     {
     case Q_ENTRY_SIG:
-        QTimeEvt_armX(&me->timeEvtKeyPoll, EC11_ROTATE_POLL_INTERVAL, EC11_ROTATE_POLL_INTERVAL);
+        QTimeEvt_armX(&me->timeEvtKeyPoll, EC11_KEY_POLL_INTERVAL, EC11_KEY_POLL_INTERVAL);
         status = Q_HANDLED();
         break;
     case Q_EXIT_SIG:
@@ -594,9 +597,18 @@ QState Ec11ContinueClickReleaseDebouncing(Ec11 *me, const QEvt *e)
         break;
     case SIGNAL_DEBOUNCING:
         if (gpio_get(EC11_KEY_PIN)) { // 释放按键去抖成功
-            status = Q_TRAN(Ec11ContinueClickRelease);
+            // status = Q_TRAN(Ec11ContinueClickRelease);
+            uint32_t currentTick = Ec11GetTick();
+            if (currentTick - me->lastPressTick <= KEY_LONG_CLICK_TIME_700MS) { // 单击
+                me->lastClickTick = currentTick; // 更新单击 tick，判断连击的候使用
+                me->lastPressTick = 0;
+                me->clickCount++;
+                status = Q_TRAN(Ec11ContinueClickPress);
+            } else { // 在连击的过程长按则退出
+                status = Q_TRAN(Ec11Idle);
+            }
         } else {
-            QTimeEvt_armX(&me->timeEvtKeyPoll, EC11_ROTATE_POLL_INTERVAL, EC11_ROTATE_POLL_INTERVAL); // 去抖失败则在当前状态继续轮询
+            QTimeEvt_armX(&me->timeEvtKeyPoll, EC11_KEY_POLL_INTERVAL, EC11_KEY_POLL_INTERVAL); // 去抖失败则在当前状态继续轮询
             status = Q_HANDLED();
         }
         break;
@@ -614,11 +626,11 @@ QState Ec11ContinueClickRelease(Ec11 *me, const QEvt *e)
     switch (e->sig)
     {
     case Q_ENTRY_SIG:
-        if (me->hasRotate) { // 在按下的过程中旋转则直接转换到空闲状态
-            status = Q_TRAN(Ec11Idle);
-            me->hasRotate = false;
-            break;
-        }
+        // if (me->hasRotate) { // 在按下的过程中旋转则直接转换到空闲状态
+        //     status = Q_TRAN(Ec11Idle);
+        //     me->hasRotate = false;
+        //     break;
+        // }
 
         uint32_t currentTick = Ec11GetTick();
         if (currentTick - me->lastPressTick <= KEY_LONG_CLICK_TIME_700MS) { // 单击

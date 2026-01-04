@@ -7,11 +7,13 @@
 #include "util_print.h"
 #include "st7735s.h"
 // #include "lcd.h"
+#include "led.h"
+#include "irq_handler.h"
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 
-#define DHT11_PIN 10
+#define DHT11_PIN (10UL)
 
 #define DHT11_MASTER_TICK_MS 20
 #define DHT11_TICK_MS 1500
@@ -81,12 +83,8 @@ static void Dht11Input()
     gpio_set_dir(DHT11_PIN, GPIO_IN);
 }
 
-static void Dht11IrqHandler(uint gpio, uint32_t event_mask)
+void Dht11IrqHandler(uint32_t event_mask)
 {
-    if (gpio != DHT11_PIN) {
-        return;
-    }
-
     if (event_mask & GPIO_IRQ_EDGE_FALL != 1) {
         return;
     }
@@ -176,13 +174,8 @@ QState Dht11MeasureProcess(Dht11 *me, const QEvt *e)
             }
         }
 
-        // sleep_us(DHT11_MASTER_HIGH_US); // 关中的情况下无法使用此函数
         Dht11Input();
-        gpio_set_irq_enabled_with_callback(
-            DHT11_PIN,
-            GPIO_IRQ_EDGE_FALL,
-            true,
-            Dht11IrqHandler);
+        RegisterIrq(DHT11_PIN, GPIO_IRQ_EDGE_FALL, true, Dht11IrqHandler);
         status = Q_TRAN(Dht11Complete);
         break;
     case Q_EXIT_SIG:

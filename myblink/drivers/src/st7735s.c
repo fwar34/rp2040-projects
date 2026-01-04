@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "pico/stdlib.h"
+#include "pico/sync.h"
 #include "hardware/spi.h"
 #include "hardware/gpio.h"
 #include "hardware/dma.h"
@@ -82,10 +83,12 @@ typedef struct {
 static LineBuffer fb[2]; // 双缓冲
 static uint8_t g_curBufIndex = 0;  // 0 or 1
 static volatile SpinLock g_spinLock = LOCK_INIT_VALUE; // 操作buffer状态，双buffer索引的锁
+static mutex_t bufferLock;
 
 void SetFbRendering()
 {
-    accquire_spinlock(&g_spinLock, 0);
+    // accquire_spinlock(&g_spinLock, 0);
+	mutex_enter_blocking(&bufferLock);
     if (fb[g_curBufIndex].curState == LINE_BUFFER_STATE_FLUSHING) {
         fb[g_curBufIndex].curState = LINE_BUFFER_STATE_RENDERING;
         // UartPrintf("setfb %d", g_curBufIndex);
@@ -95,7 +98,8 @@ void SetFbRendering()
     } else {
         printf("fb error!!!");
     }
-    release_spinlock(&g_spinLock);
+    // release_spinlock(&g_spinLock);
+	mutex_exit(&bufferLock);
 }
 
 static void DMACallback()
@@ -394,6 +398,7 @@ void LcdInit()
 
 	LcdinitDma();
 	spi_set_format(SPI_PORT, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+	mutex_init(&bufferLock);
 }
 
 #if false
@@ -704,16 +709,19 @@ void LcdDrawData(const uint8_t *rgb565, uint16_t xStart, uint16_t yStart, uint16
 LineBuffer *GetCurBuffer()
 {
 	uint8_t curIndex = 0;
-	accquire_spinlock(&g_spinLock, 0);
+	// accquire_spinlock(&g_spinLock, 0);
+	mutex_enter_blocking(&bufferLock);
 	curIndex = g_curBufIndex;
-	release_spinlock(&g_spinLock);
+	// release_spinlock(&g_spinLock);
+	mutex_exit(&bufferLock);
 
 	return &fb[curIndex];
 }
 
 bool SwitchBuffer()
 {
-	accquire_spinlock(&g_spinLock, 0);
+	// accquire_spinlock(&g_spinLock, 0);
+	mutex_enter_blocking(&bufferLock);
 	uint8_t destIndex = g_curBufIndex ^ 1;
 	Q_ASSERT(destIndex == 0 || destIndex == 1);
 	if (fb[destIndex].curState != LINE_BUFFER_STATE_FLUSHING) {
@@ -721,7 +729,8 @@ bool SwitchBuffer()
     } else {
 		printf("switch err, cur:%d", g_curBufIndex);
 	}
-    release_spinlock(&g_spinLock);
+    // release_spinlock(&g_spinLock);
+	mutex_exit(&bufferLock);
 
 	return true;
 }
@@ -798,13 +807,16 @@ void LCD_ShowCharStr_DMA_Optimized(uint16_t x, uint16_t y, uint32_t maxWidth,
 	LineBuffer *curBuf = GetCurBuffer();
 
 	// 1. 如果当前 buffer 正在送图则等待送图完成后才能开始渲染
-	accquire_spinlock(&g_spinLock, 0);
+	// accquire_spinlock(&g_spinLock, 0);
+	mutex_enter_blocking(&bufferLock);
 	if (curBuf->curState == LINE_BUFFER_STATE_FLUSHING) {
-		release_spinlock(&g_spinLock);
+		// release_spinlock(&g_spinLock);
+		mutex_exit(&bufferLock);
 		printf("error: curBf is flusing!!! str[%s]", str);
 		return;
 	}
-	release_spinlock(&g_spinLock);
+	// release_spinlock(&g_spinLock);
+	mutex_exit(&bufferLock);
 
 	// 2. 开始渲染
     uint16_t charWidth = (fontSize == 12) ? FONT_12_WIDTH : FONT_16_WIDTH;
@@ -838,9 +850,11 @@ void LCD_ShowCharStr_DMA_Optimized(uint16_t x, uint16_t y, uint32_t maxWidth,
     if (charsRendered > 0) {
         SPI_LOCK();
 		// 3. 渲染完成后准备将当前 buffer 送图，设置当前 buffer 状态为送图状态
-		accquire_spinlock(&g_spinLock, 0);
+		// accquire_spinlock(&g_spinLock, 0);
+		mutex_enter_blocking(&bufferLock);
 		curBuf->curState = LINE_BUFFER_STATE_FLUSHING;
-		release_spinlock(&g_spinLock);
+		// release_spinlock(&g_spinLock);
+		mutex_exit(&bufferLock);
 
 		// 4. 交换双 buffer
 		SwitchBuffer();

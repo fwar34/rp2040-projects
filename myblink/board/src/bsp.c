@@ -29,8 +29,7 @@ Q_NORETURN Q_onError(char const *const module, int_t const id)
     QS_ASSERTION(module, id, (uint32_t)10000U);
 
     for (;;) { // for debugging, hang on in an endless loop...
-        LightLedForError();
-        sleep_ms(100);
+        LedForError();
     }
 }
 //............................................................................
@@ -57,7 +56,7 @@ void BSP_start(void)
 
     // instantiate and start AOs/threads...
 
-    static QEvtPtr dht11QueueSto[10];
+    static QEvtPtr dht11QueueSto[110];
     Dht11Ctor();
     QActive_start(g_Dht11,
                   1U,                    // QP prio. of the AO
@@ -66,7 +65,7 @@ void BSP_start(void)
                   (void *)0, 0U,         // no stack storage
                   (void *)0);            // no initialization param
 
-    static QEvtPtr ec11QueueSto[20];
+    static QEvtPtr ec11QueueSto[120];
     Ec11Ctor();
     QActive_start(g_Ec11,
                   3U,                    // QP prio. of the AO
@@ -75,7 +74,7 @@ void BSP_start(void)
                   (void *)0, 0U,         // no stack storage
                   (void *)0);            // no initialization param
 
-    static QEvtPtr inputProcessQueueSto[10];
+    static QEvtPtr inputProcessQueueSto[100];
     InputProcessCtor();
     QActive_start(g_InputProcess,
                   2U,                    // QP prio. of the AO
@@ -87,12 +86,12 @@ void BSP_start(void)
 //............................................................................
 void BSP_ledOn(void)
 {
-    LightLed1();
+    // LightLed1();
 }
 //............................................................................
 void BSP_ledOff(void)
 {
-    OffLed1();
+    // OffLed1();
 }
 //............................................................................
 void BSP_terminate(int16_t result) { Q_UNUSED_PAR(result); }
@@ -105,7 +104,7 @@ void QF_onCleanup(void) {}
 //............................................................................
 void QV_onIdle(void)
 { // CATION: called with interrupts DISABLED, NOTE2
-    ToggleLed2();
+    Led1Xor();
 
     QF_INT_ENABLE(); // just enable interrupts
 }

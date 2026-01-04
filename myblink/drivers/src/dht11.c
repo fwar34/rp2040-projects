@@ -11,7 +11,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#define DHT11_PIN 10
+#define DHT11_PIN (10UL)
 
 #define DHT11_MASTER_TICK_MS 20
 #define DHT11_TICK_MS 1500
@@ -209,4 +209,9 @@ QState Dht11Complete(Dht11 *me, const QEvt *e)
 Dht11Result *GetDht11Result()
 {
     return &g_instance.result;
+}
+
+uint GetDht11DataPin()
+{
+    return DHT11_PIN;
 }

@@ -14,7 +14,7 @@ enum Ec11State
 	EC11_KEY_RIGHT_ROTATE, // 向右旋转一下
 	EC11_KEY_PRESS_LEFT_ROTATE, // 按住向左旋转一下
 	EC11_KEY_PRESS_RIGHT_ROTATE, // 按住向右旋转一下
-	EC11_DEBUG
+	EC11_DEBUG,
 };
 
 const char *GetKeyName(uint8_t keyIndex);

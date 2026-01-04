@@ -42,11 +42,14 @@ add_executable(myblink myblink.c
                        drivers/src/logic.c
                     #    drivers/src/dht11.c
                        drivers/src/dht11_it.c
-                       drivers/src/ec11.c
+                    #    drivers/src/ec11.c
+                       drivers/src/ec11_it.c
+                    #    drivers/src/ec11_pio.c
                     #    drivers/src/lcd.c
                        drivers/src/st7735s.c
                        drivers/src/uart1.c
                        app/src/util_print.c
+                       app/src/irq_handler.c
                        app/src/input_process.c)
 
 pico_set_program_name(myblink "myblink")
@@ -65,6 +68,8 @@ target_link_libraries(myblink
         hardware_timer
         hardware_dma
         hardware_uart
+        hardware_irq
+        hardware_pio
         # hardware_spin_lock
         qpc)
 
