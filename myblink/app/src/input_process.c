@@ -60,7 +60,7 @@ static void Ec11EventProcess(InputEvent *inputEvent)
 void Dht11ResultDisplay()
 {
     Dht11Result result = *GetDht11Result();
-    printf("humidity: %.2f, dht11: %.2f\n", result.humidity, result.temperature);
+    // printf("humidity: %.2f, dht11: %.2f\n", result.humidity, result.temperature);
 
     char number_buffer[128] = {0};
     sprintf(number_buffer, "humidity:%.2f", result.humidity);

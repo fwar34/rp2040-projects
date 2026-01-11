@@ -13,6 +13,7 @@
 int main()
 {
     stdio_init_all();
+    while (!stdio_usb_connected());
     printf("system clock:%d\n", clock_get_hz(clk_sys));
     LedInit();
     // TftInit();

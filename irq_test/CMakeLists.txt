@@ -35,18 +35,23 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(irq_test irq_test.c )
+add_executable(irq_test 
+                        # irq_test.c
+                        uart_test.c)
 
 pico_set_program_name(irq_test "irq_test")
 pico_set_program_version(irq_test "0.1")
 
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(irq_test 1)
-pico_enable_stdio_usb(irq_test 0)
+pico_enable_stdio_usb(irq_test 1)
 
 # Add the standard library to the build
 target_link_libraries(irq_test
-        pico_stdlib)
+        pico_stdlib
+        hardware_uart
+        hardware_irq
+        hardware_dma)
 
 # Add the standard include files to the build
 target_include_directories(irq_test PRIVATE

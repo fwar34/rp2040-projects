@@ -5,7 +5,7 @@
 #include "ec11.h"
 #include "input_process.h"
 // #include "signals.h"
-// #include "usart.h"
+#include "uart1.h"
 // #include "st7735s.h"
 #include "led.h"
 #include "logic.h"
@@ -27,6 +27,7 @@ Q_NORETURN Q_onError(char const *const module, int_t const id)
     Q_UNUSED_PAR(module);
     Q_UNUSED_PAR(id);
     QS_ASSERTION(module, id, (uint32_t)10000U);
+    printf("error:m:%s, id:%d\n", module, id);
 
     for (;;) { // for debugging, hang on in an endless loop...
         LedForError();
@@ -47,7 +48,7 @@ void BSP_init(void)
 void BSP_start(void)
 {
     // initialize event pools
-    static QF_MPOOL_EL(InputEvent) smlPoolSto[10];
+    static QF_MPOOL_EL(InputEvent) smlPoolSto[200];
     QF_poolInit(smlPoolSto, sizeof(smlPoolSto), sizeof(smlPoolSto[0]));
 
     // initialize publish-subscribe
@@ -56,7 +57,7 @@ void BSP_start(void)
 
     // instantiate and start AOs/threads...
 
-    static QEvtPtr dht11QueueSto[110];
+    static QEvtPtr dht11QueueSto[20];
     Dht11Ctor();
     QActive_start(g_Dht11,
                   1U,                    // QP prio. of the AO
@@ -65,7 +66,7 @@ void BSP_start(void)
                   (void *)0, 0U,         // no stack storage
                   (void *)0);            // no initialization param
 
-    static QEvtPtr ec11QueueSto[120];
+    static QEvtPtr ec11QueueSto[20];
     Ec11Ctor();
     QActive_start(g_Ec11,
                   3U,                    // QP prio. of the AO
@@ -74,12 +75,21 @@ void BSP_start(void)
                   (void *)0, 0U,         // no stack storage
                   (void *)0);            // no initialization param
 
-    static QEvtPtr inputProcessQueueSto[100];
+    static QEvtPtr inputProcessQueueSto[30];
     InputProcessCtor();
     QActive_start(g_InputProcess,
-                  2U,                    // QP prio. of the AO
+                  4U,                    // QP prio. of the AO
                   inputProcessQueueSto,        // event queue storage
                   Q_DIM(inputProcessQueueSto), // queue length [events]
+                  (void *)0, 0U,         // no stack storage
+                  (void *)0);            // no initialization param
+
+    static QEvtPtr uartProcessQueueSto[250];
+    UartProcessCtor();
+    QActive_start(g_UartProcess,
+                  2U,                    // QP prio. of the AO
+                  uartProcessQueueSto,        // event queue storage
+                  Q_DIM(uartProcessQueueSto), // queue length [events]
                   (void *)0, 0U,         // no stack storage
                   (void *)0);            // no initialization param
 }

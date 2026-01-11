@@ -312,7 +312,7 @@ QState Ec11RotatePoll(Ec11 *me, const QEvt *e)
             inputEvent->data.qeueueMin = QActive_getQueueMin(me->super.prio);
             inputEvent->key = EC11_DEBUG;
             QACTIVE_POST(g_InputProcess, &inputEvent->super, &me->super);
-            printf("aIrqCount:%d, bIrqCount:%d, tmpC:%d\n", aIrqCount, bIrqCount, g_Instance.tmpCount);
+            // printf("aIrqCount:%d, bIrqCount:%d, tmpC:%d\n", aIrqCount, bIrqCount, g_Instance.tmpCount);
         }
 
         // static int16_t lastPosition = 0;

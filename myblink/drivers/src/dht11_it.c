@@ -130,11 +130,11 @@ void Dht11IrqHandler(uint32_t event_mask)
 
             // printf("humidity: %.2f, dht11: %.2f\n", me->result.humidity, me->result.temperature);
 
-            char number_buffer[128] = {0};
+            // char number_buffer[128] = {0};
             // sprintf(number_buffer, "humidity:%.2f", me->result.humidity);
             // LCD_ShowCharStr_DMA_Optimized(0, 32, LCD_WIDTH, number_buffer, RGB565_BLUE, RGB565_RED, 16);
 
-            memset(number_buffer, 0, sizeof(number_buffer));
+            // memset(number_buffer, 0, sizeof(number_buffer));
             // sprintf(number_buffer, "temperature:%.2f", me->result.temperature);
             // LCD_ShowCharStr_DMA_Optimized(0, 48, LCD_WIDTH, number_buffer, RGB565_YELLOW, RGB565_BLUE, 16);
         }

@@ -47,9 +47,9 @@ add_executable(myblink myblink.c
                     #    drivers/src/ec11_pio.c
                     #    drivers/src/lcd.c
                        drivers/src/st7735s.c
-                       drivers/src/uart1.c
                        app/src/util_print.c
                        app/src/irq_handler.c
+                       app/src/uart1.c
                        app/src/input_process.c)
 
 pico_set_program_name(myblink "myblink")
@@ -57,7 +57,7 @@ pico_set_program_version(myblink "0.1")
 
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(myblink 1)
-pico_enable_stdio_usb(myblink 0)
+pico_enable_stdio_usb(myblink 1)
 
 # Add the standard library to the build
 target_link_libraries(myblink

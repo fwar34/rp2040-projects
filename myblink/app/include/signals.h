@@ -14,6 +14,8 @@ enum InputSignals {
     SIGNAL_INPUT,
     SIGNAL_DHT11_RESULT_DISPLAY,
     SIGNAL_TIMEOUT,
+    SIGNAL_RX_IDLE_TIMEOUT,
+    SIGNAL_RX_DATA
 };
 
 #endif // !__SIGNALS_H_
