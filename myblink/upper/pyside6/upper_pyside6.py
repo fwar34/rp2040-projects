@@ -1,12 +1,14 @@
 import sys
-import date
-from PySide6.QtCore import QObject, Signal, Slot
+import datetime
+import serial
+from PySide6.QtCore import QObject, Signal, Slot, Qt, QTimer
+# from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication, QTextEdit, QLabel, QPushButton, QWidget,
     QMainWindow, QFileDialog, QProgressBar, QVBoxLayout,
-    QSizePolicy, QStyle
+    QSizePolicy, QStyle, QHBoxLayout
 )
-# from PySide6.QtGui import QFont
+import commands
 
 class MainWindown(QMainWindow):
     MYBUTTON_CLASS_STYLE = """
@@ -34,29 +36,62 @@ class MainWindown(QMainWindow):
         self._value = 0
         self.SetupUI()
         self.setWindowTitle("测试")
+        self.progressValue.connect(self.SetProgressValue)
     
     def SetupMessageArea(self):
         self.messageText = QTextEdit()
         self.messageText.setCursorWidth(0)
         self.messageText.setStyleSheet("""
             border: none;
-            padding: 0px 1px;
+            padding: 1px 1px;
+            font-size: 13pt;
         """)
         self.messageText.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.layout.addWidget(self.messageText)
+        self.innerVLayoutLeft.addWidget(self.messageText)
 
     def SetupButtons(self):
         uploadBtn = QPushButton("上传文件")
         uploadBtn.setObjectName("mybutton")
         uploadBtn.setStyleSheet(MainWindown.MYBUTTON_CLASS_STYLE)
         uploadBtn.clicked.connect(self.OnUploadBtnClicked)
-        self.layout.addWidget(uploadBtn)
+        self.innerVLayoutRight.addWidget(uploadBtn)
+        testBtn = QPushButton("测试进度条")
+        testBtn.setObjectName("mybutton")
+        testBtn.setStyleSheet(MainWindown.MYBUTTON_CLASS_STYLE)
+        testBtn.clicked.connect(self.OnTestBtnClicked)
+        self.innerVLayoutRight.addWidget(testBtn)
+    
+    def SetupProgress(self):
+        self.progress = QProgressBar()
+        self.progress.setStyleSheet("""
+            QProgressBar {
+                height: 24px;
+                border: 1px solid #ddd;
+                border-radius: 12px;  /* 圆角半径=高度/2,做胶囊状 */
+                background-color: #f5f5f5;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background-color: #2196F3;
+                border-radius: 11px;  /* 比外层小1px,避免边框溢出 */
+                margin: 0px;  /* 关键：去掉边距 */
+            }
+        """)
+        self.progress.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.innerVLayoutLeft.addWidget(self.progress)
 
     def SetupUI(self):
         centralWiget = QWidget()
-        self.layout = QVBoxLayout(centralWiget)
+        self.outHLayout = QHBoxLayout(centralWiget)
+        self.innerVLayoutLeft = QVBoxLayout()
+        self.innerVLayoutLeft.setAlignment(Qt.AlignTop)
+        self.innerVLayoutRight = QVBoxLayout()
+        self.innerVLayoutRight.setAlignment(Qt.AlignTop)
+        self.outHLayout.addLayout(self.innerVLayoutLeft)
+        self.outHLayout.addLayout(self.innerVLayoutRight)
         self.SetupMessageArea()
         self.SetupButtons()
+        self.SetupProgress()
         self.setCentralWidget(centralWiget)
 
     @property
@@ -72,21 +107,34 @@ class MainWindown(QMainWindow):
 
     @Slot(int)
     def SetProgressValue(self, value):
-        pass
+        if hasattr(self, 'progress'):
+            self.progress.setValue(value)
 
     @Slot()
     def OnUploadBtnClicked(self):
         fileName, _ = QFileDialog.getOpenFileName(self, "选择上传文件", "", "所有文件 (*);;文本文件 (*.txt)")
         if fileName:
-            fileName = 
-            self.messageText.append(fileName)
+            curTime = datetime.datetime.now().time().strftime("%H:%M:%S")
+            self.messageText.append(f"{curTime} - {fileName}")
         else:
             self.messageText.append("未选择文件")
+
+    @Slot()
+    def OnTestBtnClicked(self):
+        for i in range(1, 101):
+            QTimer.singleShot(i * 20, lambda value=i: self.progressValue.emit(value))
+            
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    screen = app.primaryScreen()
+    screenWidth = screen.geometry().width()
+    screenHeight = screen.geometry().height()
+    appWidth = 800
+    appHeight = 600
     window = MainWindown()
+    window.setGeometry((screenWidth - appWidth) / 2, (screenHeight - appHeight) / 2, appWidth, appHeight)
     window.show()
     sys.exit(app.exec())
     print(f"window value:{window.value}")
