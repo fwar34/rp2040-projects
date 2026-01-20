@@ -54,5 +54,6 @@
         "gpio.h": "c"
     },
     "commentTranslate.source": "Google",
-    "commentTranslate.targetLanguage": "zh-CN"
+    "commentTranslate.targetLanguage": "zh-CN",
+    "idf.pythonInstallPath": "i:\\esp32\\.espressif\\tools\\idf-python\\3.11.2\\python.exe"
 }

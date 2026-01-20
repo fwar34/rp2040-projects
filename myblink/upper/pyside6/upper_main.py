@@ -156,7 +156,7 @@ class MainWindow(QMainWindow):
     def SetProgressValue(self, value):
         if hasattr(self, 'progress'):
             self.progress.setValue(value)
-
+kk
     @Slot()
     def OnUploadBtnClicked(self):
         fileName, _ = QFileDialog.getOpenFileName(self, "选择上传文件", "", "所有文件 (*);;文本文件 (*.txt)")
