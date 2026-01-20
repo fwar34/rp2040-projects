@@ -9,6 +9,13 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "Python Debugger: upper_main",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "upper/pyside6/upper_main.py",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "Pico Debug (Cortex-Debug)",
             "cwd": "${userHome}/.pico-sdk/openocd/0.12.0+dev/scripts",
             "executable": "${command:raspberry-pi-pico.launchTargetPath}",

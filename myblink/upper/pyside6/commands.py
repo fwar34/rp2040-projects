@@ -2,7 +2,6 @@ import struct
 
 BYTE_ORDER = "<"
 PKG_NAME_LEN_FIELD_BYTE_SIZE = 4
-FILE_LEN_FIELD_BYTE_SIZE = 4
 
 class CommandID(enumerate):
     COMMAND_ID_INVALID = 0
@@ -55,16 +54,20 @@ class BaseCommand():
         return retBytes
 
 class FileCommand(BaseCommand):
+    filePackFormat = BYTE_ORDER + "III"
     def __init__(self):
         super().__init__()
+        self.byteArray = []
         self.headerLen = self.bytesLen()
         self.commandType = CommandType.COMMAND_TYPE_BINARY
         self.commandId = CommandID.COMMAND_ID_FILE_SEND
         self.fileLen = 0
+        self.blockOffset = 0
+        self.blockLen = 0
 
     def bytesLen(self):
-        return super().bytesLen() + FILE_LEN_FIELD_BYTE_SIZE
+        return super().bytesLen() + struct.calcsize(self.filePackFormat) + len(self.byteArray)
 
     def to_bytes(self):
-        retBytes = super().to_bytes() + struct.pack(BYTE_ORDER + "I", self.fileLen)
-        return retBytes
+        return super().to_bytes() + struct.pack(self.filePackFormat, self.fileLen, 
+            self.blockOffset, self.blockLen) + self.byteArray
