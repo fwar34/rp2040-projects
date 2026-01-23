@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QFileDialog, QProgressBar, QVBoxLayout,
     QSizePolicy, QStyle, QHBoxLayout
 )
+from PySide6.QtGui import QFont
 import upload_thread
 import configs
 
@@ -181,6 +182,8 @@ if __name__ == "__main__":
     conf.Load(configFilePath)
 
     app = QApplication(sys.argv)
+    font = QFont("Microsoft YaHei", 13)
+    app.setFont(font)
     screen = app.primaryScreen()
     screenWidth = screen.geometry().width()
     screenHeight = screen.geometry().height()

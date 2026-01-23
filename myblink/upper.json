@@ -1,4 +1,5 @@
 {
     "blockSize": 500,
-    "uartPort": "COM8"
+    "uartPort": "/dev/ttyUSB0",
+    "uartPort_comment": "COM8"
 }
