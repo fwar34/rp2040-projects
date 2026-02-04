@@ -58,10 +58,10 @@ class UploadThread(QThread):
                 blockCount += 1
             sendCount = 0
             for i in range(0, blockCount):
-                with QMutexLocker(self.mutex):
-                    if not self.isRunning:
-                        self.mainWindow.LogDisplay(f"停止上传文件:{fileName}")
-                        return
+                # with QMutexLocker(self.mutex):
+                #     if not self.running:
+                #         self.mainWindow.LogDisplay(f"停止上传文件:{fileName}")
+                #         return
                 fileCommand = commands.FileCommand()
                 fileCommand.fileLen = fileSize
                 fileCommand.blockOffset = f.tell()

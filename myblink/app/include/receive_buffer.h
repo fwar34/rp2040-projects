@@ -13,16 +13,16 @@
 
 #define RECEIVE_BUFFER_LENGTH 1024
 
-typedef struct _ReceiveBuffer
-{
-	uint8_t data[RECEIVE_BUFFER_LENGTH];
-	uint8_t *consumePointer;
-	uint16_t dataLen;
-	uint16_t capacity;
+typedef struct {
+	uint8_t *data;
+	uint16_t elementSize;
+	uint16_t elementCount;
+	uint16_t writeIndex;
+	uint16_t readIndex;
 } ReceiveBuffer;
 
 ReceiveBuffer *GetReceiveBuffer();
-void Init(ReceiveBuffer *receiveBuffer);
+void RecvBufInit(ReceiveBuffer *receiveBuffer, uint8_t *data, uint16_t elementSize, uint16_t elementCount);
 bool IsEmpty(ReceiveBuffer *receiveBuffer);
 void ConsumeData(ReceiveBuffer* receiveBuffer, uint16_t consumeLen);
 void Clear(ReceiveBuffer *receiveBuffer);

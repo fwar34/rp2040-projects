@@ -51,7 +51,8 @@
         "sync.h": "c",
         "uart1.h": "c",
         "gpio_coproc.h": "c",
-        "gpio.h": "c"
+        "gpio.h": "c",
+        "stdio.h": "c"
     },
     "commentTranslate.source": "Google",
     "commentTranslate.targetLanguage": "zh-CN",

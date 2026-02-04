@@ -50,6 +50,8 @@ add_executable(myblink myblink.c
                        app/src/util_print.c
                        app/src/irq_handler.c
                        app/src/uart1.c
+                       app/src/session.c
+                       app/src/receive_buffer.c
                        app/src/input_process.c)
 
 pico_set_program_name(myblink "myblink")
